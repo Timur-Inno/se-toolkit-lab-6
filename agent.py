@@ -66,7 +66,9 @@ Tool usage rules:
 - When an endpoint returns empty results or no error, try different parameter values (e.g. lab=lab-1, lab=lab-2) to find one that triggers a crash or real data
 - Questions about ports or what port something runs on: FIRST read docker-compose.yml, THEN read .env.docker.secret to get the actual numeric values of APP_HOST_PORT, CADDY_HOST_PORT, APP_CONTAINER_PORT. Always report the concrete number from the file, not the variable name.
 - Questions about source code, frameworks, imports, or implementation: use list_files("backend/app") first, then read_file on the relevant file
-- Questions asking about a bug or error in the source code: ALWAYS call query_api to get the error first, then read_file on the relevant source file to identify the buggy line
+- Questions about HTTP request lifecycle or how requests flow through the system: read docker-compose.yml, Caddyfile, Dockerfile (in project root), and backend/app/main.py in that order
+- Questions asking about a bug or error in the source code: call query_api first to get the error, then you MUST ALSO call read_file on backend/app/routers/analytics.py to find the buggy line. Both tools are required — never skip read_file.
+- Questions listing router modules or files and their purpose: use list_files on the routers directory, read each file briefly, then summarize each module name and its domain in plain text (do NOT dump raw code)
 - Questions about documentation/wiki topics: use list_files("wiki"), then read_file on relevant file
 - To explore directories: use list_files first, then read_file on specific files
 

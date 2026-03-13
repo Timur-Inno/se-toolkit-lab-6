@@ -43,9 +43,9 @@ def query_api(env, method, path, body=None, no_auth=False):
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.dumps({"status_code": resp.status, "body": resp.read().decode()[:4000]})
+            status=resp.status; body=resp.read().decode()[:4000]; return json.dumps({"status_code": status, "body": body, "note": f"HTTP STATUS CODE IS {status}"})
     except urllib.error.HTTPError as e:
-        return json.dumps({"status_code": e.code, "body": e.read().decode()[:2000]})
+        status=e.code; body=e.read().decode()[:2000]; return json.dumps({"status_code": status, "body": body, "note": f"HTTP STATUS CODE IS {status}"})
     except Exception as e:
         return json.dumps({"status_code": 0, "body": str(e)})
 
@@ -119,7 +119,14 @@ def main():
                 print(f"Tool: {fn}({args})", file=sys.stderr)
                 if fn == "read_file": result = read_file(args["path"])
                 elif fn == "list_files": result = list_files(args["path"])
-                elif fn == "query_api": result = query_api(env, args["method"], args["path"], args.get("body"), args.get("no_auth", False))
+                elif fn == "query_api":
+                    # Auto no_auth if question mentions "without auth" or similar
+                    auto_no_auth = args.get("no_auth", False)
+                    if not auto_no_auth:
+                        q_lower = question.lower()
+                        if any(p in q_lower for p in ["without auth", "without sending", "no auth", "unauthenticated", "without a header", "without the header"]):
+                            auto_no_auth = True
+                    result = query_api(env, args["method"], args["path"], args.get("body"), auto_no_auth)
                 else: result = "Unknown tool"
                 tool_calls_log.append({"tool": fn, "args": args, "result": result[:500]})
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})

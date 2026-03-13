@@ -71,6 +71,7 @@ Tool usage rules:
 
 IMPORTANT: Do NOT output intermediate reasoning text. Either call a tool OR give the final answer.
 CRITICAL: When query_api returns a status_code, that IS the answer — report it exactly. Never contradict tool results.
+EXAMPLE: question asks "what status code does /items/ return without auth?" → call query_api(method="GET", path="/items/", no_auth=true) → if result is {"status_code": 401, ...} → answer is "401".
 Never output text like "Let me check..." or "I will now..." — just call the tool directly.
 
 Always end your final answer with:
@@ -79,7 +80,7 @@ Source: <reference>
 Where <reference> is wiki/filename.md#section, /api/path, or backend/app/file.py."""
 
 def call_api(env, messages):
-    payload = json.dumps({"model": env["LLM_MODEL"], "messages": messages, "tools": TOOLS, "tool_choice": "auto"}).encode()
+    payload = json.dumps({"model": env["LLM_MODEL"], "messages": messages, "tools": TOOLS, "tool_choice": "auto", "temperature": 0}).encode()
     req = urllib.request.Request(f"{env['LLM_API_BASE']}/chat/completions", data=payload,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {env['LLM_API_KEY']}"})
     with urllib.request.urlopen(req, timeout=60) as resp:

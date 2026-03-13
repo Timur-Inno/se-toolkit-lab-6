@@ -1,10 +1,19 @@
 import sys
 import json
 import urllib.request
+import urllib.error
+import os
+import re
 from pathlib import Path
 from dotenv import dotenv_values
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
+
+def load_env():
+    env = {**dotenv_values(".env.agent.secret"), **dotenv_values(".env.docker.secret")}
+    for k, v in os.environ.items():
+        env[k] = v
+    return env
 
 def safe_path(path):
     p = (PROJECT_ROOT / path).resolve()
@@ -24,21 +33,74 @@ def list_files(path):
     try: return "\n".join(e.name for e in sorted(p.iterdir()))
     except Exception as e: return f"Error: {e}"
 
+def query_api(env, method, path, body=None, no_auth=False):
+    base_url = env.get("AGENT_API_BASE_URL", "http://localhost:42002")
+    url = f"{base_url}{path}"
+    data = body.encode() if body else None
+    headers = {"Content-Type": "application/json"}
+    if not no_auth:
+        headers["Authorization"] = f"Bearer {env.get('LMS_API_KEY', '')}"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.dumps({"status_code": resp.status, "body": resp.read().decode()[:4000]})
+    except urllib.error.HTTPError as e:
+        return json.dumps({"status_code": e.code, "body": e.read().decode()[:2000]})
+    except Exception as e:
+        return json.dumps({"status_code": 0, "body": str(e)})
+
 TOOLS = [
-    {"type": "function", "function": {"name": "read_file", "description": "Read a file from the project repository.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
-    {"type": "function", "function": {"name": "list_files", "description": "List files and directories at a given path.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}}
+    {"type": "function", "function": {"name": "read_file", "description": "Read a file from the project repository. Use for source code, config files, and wiki documentation files.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "list_files", "description": "List files and directories at a given path in the project repository.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "query_api", "description": "Call the deployed backend API to get live data or observe real behavior: item counts (try /items/), scores, analytics, HTTP status codes, authentication errors. Always call the API directly — do not guess from source code.", "parameters": {"type": "object", "properties": {"method": {"type": "string"}, "path": {"type": "string"}, "body": {"type": "string"}}, "required": ["method", "path"]}}}
 ]
 
-SYSTEM_PROMPT = """You are a documentation assistant. Use list_files to discover wiki files, then read_file to find the answer. Always include a source reference as wiki/filename.md#section."""
+SYSTEM_PROMPT = """You are a system assistant for a software engineering LMS project.
+
+Project layout:
+- backend/app/  — Python backend source code (main.py or app.py is the entry point)
+- wiki/         — project documentation markdown files
+
+Tool usage rules:
+- Questions about live data, HTTP status codes, API behavior: use query_api. IMPORTANT: for "what status code does X return without auth/authentication" — call query_api with no_auth=true to send the request without the Authorization header
+- When an endpoint returns empty results or no error, try different parameter values (e.g. lab=lab-1, lab=lab-2) to find one that triggers a crash or real data
+- Questions about source code, frameworks, imports, or implementation: use list_files("backend/app") first, then read_file on the relevant file
+- Questions asking about a bug or error in the source code: ALWAYS call query_api to get the error first, then read_file on the relevant source file to identify the buggy line
+- Questions about documentation/wiki topics: use list_files("wiki"), then read_file on relevant file
+- To explore directories: use list_files first, then read_file on specific files
+
+IMPORTANT: Do NOT output intermediate reasoning text. Either call a tool OR give the final answer.
+CRITICAL: When query_api returns a status_code, that IS the answer — report it exactly. Never contradict tool results.
+Never output text like "Let me check..." or "I will now..." — just call the tool directly.
+
+Always end your final answer with:
+Source: <reference>
+
+Where <reference> is wiki/filename.md#section, /api/path, or backend/app/file.py."""
 
 def call_api(env, messages):
     payload = json.dumps({"model": env["LLM_MODEL"], "messages": messages, "tools": TOOLS, "tool_choice": "auto"}).encode()
-    req = urllib.request.Request(f"{env['LLM_API_BASE']}/chat/completions", data=payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {env['LLM_API_KEY']}"})
+    req = urllib.request.Request(f"{env['LLM_API_BASE']}/chat/completions", data=payload,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {env['LLM_API_KEY']}"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         return json.loads(resp.read())
 
+def extract_source(text):
+    m = re.search(r'Source:\s*(\S+)', text)
+    if m: return m.group(1)
+    m = re.search(r'wiki/[\w\-/.]+\.md(?:#[\w\-]+)?', text)
+    if m: return m.group(0)
+    return ""
+
+def looks_incomplete(text):
+    REASONING = ["let me", "i will", "i need to", "i should", "i am going", "first, let", "now let", "let me try"]
+    tl = text.strip().lower()
+    if any(tl.startswith(r) for r in REASONING): return True
+    text = text.strip()
+    return text.endswith(':') or text.endswith('...') or len(text) < 30
+
 def main():
-    env = dotenv_values(".env.agent.secret")
+    env = load_env()
     if len(sys.argv) < 2:
         print("Usage: agent.py <question>", file=sys.stderr); sys.exit(1)
     question = sys.argv[1]
@@ -46,7 +108,7 @@ def main():
     messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": question}]
     tool_calls_log = []
     answer = source = ""
-    for _ in range(10):
+    for _ in range(20):
         data = call_api(env, messages)
         msg = data["choices"][0]["message"]
         messages.append(msg)
@@ -54,14 +116,21 @@ def main():
             for tc in msg["tool_calls"]:
                 fn = tc["function"]["name"]
                 args = json.loads(tc["function"]["arguments"])
-                result = read_file(args["path"]) if fn == "read_file" else list_files(args["path"]) if fn == "list_files" else "Unknown tool"
+                print(f"Tool: {fn}({args})", file=sys.stderr)
+                if fn == "read_file": result = read_file(args["path"])
+                elif fn == "list_files": result = list_files(args["path"])
+                elif fn == "query_api": result = query_api(env, args["method"], args["path"], args.get("body"), args.get("no_auth", False))
+                else: result = "Unknown tool"
                 tool_calls_log.append({"tool": fn, "args": args, "result": result[:500]})
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
         else:
-            answer = msg.get("content", "")
-            import re
-            m = re.search(r'wiki/[\w\-/.]+\.md(?:#[\w\-]+)?', answer)
-            if m: source = m.group(0)
+            content = (msg.get("content") or "")
+            if looks_incomplete(content):
+                # Push it back and ask LLM to continue with tools
+                messages.append({"role": "user", "content": "Continue — use tools to complete your answer."})
+                continue
+            answer = content
+            source = extract_source(answer)
             break
     print(json.dumps({"answer": answer, "source": source, "tool_calls": tool_calls_log}))
 

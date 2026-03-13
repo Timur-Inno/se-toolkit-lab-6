@@ -64,6 +64,7 @@ Project layout:
 Tool usage rules:
 - Questions about live data, HTTP status codes, API behavior: use query_api. IMPORTANT: for "what status code does X return without auth/authentication" — call query_api with no_auth=true to send the request without the Authorization header
 - When an endpoint returns empty results or no error, try different parameter values (e.g. lab=lab-1, lab=lab-2) to find one that triggers a crash or real data
+- Questions about ports or what port something runs on: FIRST read docker-compose.yml, THEN read .env.docker.secret to get the actual numeric values of APP_HOST_PORT (backend=42001), CADDY_HOST_PORT (public=42002), APP_CONTAINER_PORT (container=8000). Always report the concrete number, not the variable name.
 - Questions about source code, frameworks, imports, or implementation: use list_files("backend/app") first, then read_file on the relevant file
 - Questions asking about a bug or error in the source code: ALWAYS call query_api to get the error first, then read_file on the relevant source file to identify the buggy line
 - Questions about documentation/wiki topics: use list_files("wiki"), then read_file on relevant file

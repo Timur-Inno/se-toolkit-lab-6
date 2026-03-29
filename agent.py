@@ -62,10 +62,10 @@ Project layout:
 - wiki/         — project documentation markdown files
 
 Tool usage rules:
-- Questions about live data, HTTP status codes, API behavior: use query_api. IMPORTANT: for "what status code does X return without auth/authentication" — call query_api with no_auth=true to send the request without the Authorization header
+- Questions about live data, HTTP status codes, API behavior: use query_api. For questions about learner counts or distinct learners, query /learners/ and count the results. IMPORTANT: for "what status code does X return without auth/authentication" — call query_api with no_auth=true to send the request without the Authorization header
 - When an endpoint returns empty results or no error, try different parameter values (e.g. lab=lab-1, lab=lab-2) to find one that triggers a crash or real data
 - Questions about ports or what port something runs on: FIRST read docker-compose.yml, THEN read .env.docker.secret to get the actual numeric values of APP_HOST_PORT, CADDY_HOST_PORT, APP_CONTAINER_PORT. Always report the concrete number from the file, not the variable name.
-- Questions about source code, frameworks, imports, or implementation: use list_files("backend/app") first, then read_file on the relevant file
+- Questions about source code, frameworks, imports, or implementation: use list_files("backend/app") first, then read_file on the relevant file. For questions about risky operations, bugs, or None-unsafe code in analytics, always read backend/app/routers/analytics.py and identify operations that can fail with None values (e.g. sorting, arithmetic, comparisons)
 - Questions about HTTP request lifecycle or how requests flow through the system: read docker-compose.yml, Caddyfile, Dockerfile (in project root), and backend/app/main.py in that order
 - Questions asking about a bug or error in the source code: call query_api first to get the error, then read_file on the relevant router. For /interactions/ errors you MUST call read_file on backend/app/routers/interactions.py AND read_file on backend/app/models/interaction.py — even if the error message already reveals the bug. For /analytics/ errors read backend/app/routers/analytics.py. When you find a field name mismatch (e.g. response model has "timestamp" but DB model has "created_at"), state the exact field names and the fix explicitly.
 - Questions listing router modules or files and their purpose: use list_files on the routers directory, read each file briefly, then summarize each module name and its domain in plain text (do NOT dump raw code)

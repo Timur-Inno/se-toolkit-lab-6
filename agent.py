@@ -82,9 +82,9 @@ Source: <reference>
 Where <reference> is wiki/filename.md#section, /api/path, or backend/app/file.py."""
 
 def call_api(env, messages):
-    payload = json.dumps({"model": env["LLM_MODEL"], "messages": messages, "tools": TOOLS, "tool_choice": "auto"}).encode()
-    req = urllib.request.Request(f"{env['LLM_API_BASE']}/chat/completions", data=payload,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {env['LLM_API_KEY']}"})
+    payload = json.dumps({"model": env["LLM_API_MODEL"], "messages": messages, "tools": TOOLS, "tool_choice": "auto"}).encode()
+    req = urllib.request.Request(f"{env['LLM_API_BASE_URL']}/chat/completions", data=payload,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {env['LLM_API_KEY']}", "X-Api-Key": env['LLM_API_KEY']})
     with urllib.request.urlopen(req, timeout=60) as resp:
         return json.loads(resp.read())
 
